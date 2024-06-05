@@ -1,119 +1,102 @@
+// index.js
 const express = require("express");
+const { App } = require("@slack/bolt");
 const bodyParser = require("body-parser");
-const axios = require("axios");
 require("dotenv").config();
 
 const app = express();
-const port = process.env.PORT;
-
-// Middleware
-app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+const slackApp = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+});
 
-// Verify Slack request
-const verifySlackRequest = (req, res, next) => {
-  // Verification logic here
-  next();
-};
+app.post("/slack/commands", async (req, res) => {
+  const { command, text, user_id, trigger_id } = req.body;
 
-// Slash command endpoint
-app.post("/slack/commands", verifySlackRequest, (req, res) => {
-  const { trigger_id } = req.body;
-
-  const modal = {
-    trigger_id: trigger_id,
-    view: {
-      type: "modal",
-      callback_id: "approval_modal",
-      title: {
-        type: "plain_text",
-        text: "Request Approval",
-      },
-      blocks: [
-        {
-          type: "input",
-          block_id: "approver_block",
-          element: {
-            type: "users_select",
-            action_id: "approver_action",
-            placeholder: {
-              type: "plain_text",
-              text: "Select an approver",
-            },
-          },
-          label: {
+  if (command === "/approval-test") {
+    try {
+      await slackApp.client.views.open({
+        trigger_id,
+        view: {
+          type: "modal",
+          callback_id: "approval_modal",
+          title: {
             type: "plain_text",
-            text: "Approver",
+            text: "Approval Request",
           },
-        },
-        {
-          type: "input",
-          block_id: "approval_text_block",
-          element: {
-            type: "plain_text_input",
-            action_id: "approval_text_action",
-            multiline: true,
-          },
-          label: {
-            type: "plain_text",
-            text: "Approval Text",
-          },
-        },
-        {
-          type: "actions",
-          elements: [
+          blocks: [
             {
-              type: "button",
-              text: {
-                type: "plain_text",
-                text: "Submit",
+              type: "input",
+              block_id: "approver_block",
+              element: {
+                type: "users_select",
+                action_id: "approver",
               },
-              action_id: "submit_approval",
+              label: {
+                type: "plain_text",
+                text: "Select Approver",
+              },
+            },
+            {
+              type: "input",
+              block_id: "approval_text_block",
+              element: {
+                type: "plain_text_input",
+                action_id: "approval_text",
+                multiline: true,
+              },
+              label: {
+                type: "plain_text",
+                text: "Approval Text",
+              },
+            },
+            {
+              type: "actions",
+              elements: [
+                {
+                  type: "button",
+                  text: {
+                    type: "plain_text",
+                    text: "Submit",
+                  },
+                  action_id: "submit_approval",
+                },
+              ],
             },
           ],
         },
-      ],
-    },
-  };
-
-  axios.post("https://slack.com/api/views.open", modal, {
-    headers: {
-      Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-  });
-
-  res.send("");
+      });
+      res.status(200).send("");
+    } catch (error) {
+      console.error(error);
+      res.status(500).send("Something went wrong");
+    }
+  }
 });
 
-// Interaction endpoint
-app.post("/slack/interactions", verifySlackRequest, (req, res) => {
-  const payload = JSON.parse(req.body.payload);
-  const { type, user, view, actions } = payload;
+slackApp.action("submit_approval", async ({ ack, body, client }) => {
+  await ack();
+  const approver = body.view.state.values.approver_block.approver.selected_user;
+  const approvalText =
+    body.view.state.values.approval_text_block.approval_text.value;
 
-  if (type === "block_actions" && actions[0].action_id === "submit_approval") {
-    const approver =
-      view.state.values.approver_block.approver_action.selected_user;
-    const approvalText =
-      view.state.values.approval_text_block.approval_text_action.value;
-
-    const message = {
+  try {
+    await client.chat.postMessage({
       channel: approver,
-      text: `You have a new approval request from <@${user.id}>`,
+      text: `You have a new approval request from <@${body.user.id}>: ${approvalText}`,
       blocks: [
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*Approval Request*\n\n${approvalText}`,
+            text: `You have a new approval request from <@${body.user.id}>:\n${approvalText}`,
           },
         },
         {
           type: "actions",
-          block_id: "approval_actions",
           elements: [
             {
               type: "button",
@@ -136,43 +119,45 @@ app.post("/slack/interactions", verifySlackRequest, (req, res) => {
           ],
         },
       ],
-    };
-
-    axios.post("https://slack.com/api/chat.postMessage", message, {
-      headers: {
-        Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-        "Content-Type": "application/json",
-      },
     });
-
-    res.send("");
-  }
-
-  if (
-    type === "block_actions" &&
-    (actions[0].action_id === "approve_request" ||
-      actions[0].action_id === "reject_request")
-  ) {
-    const requester = payload.message.blocks[0].text.text.match(/<@(.*?)>/)[1];
-    const action =
-      actions[0].action_id === "approve_request" ? "approved" : "rejected";
-
-    const message = {
-      channel: requester,
-      text: `Your approval request has been ${action} by <@${user.id}>.`,
-    };
-
-    axios.post("https://slack.com/api/chat.postMessage", message, {
-      headers: {
-        Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    res.send("");
+  } catch (error) {
+    console.error(error);
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+slackApp.action("approve_request", async ({ ack, body, client }) => {
+  await ack();
+  const requester = body.message.blocks[0].text.text.match(/<@(\w+)>/)[1];
+
+  try {
+    await client.chat.postMessage({
+      channel: requester,
+      text: `Your approval request has been approved by <@${body.user.id}>.`,
+    });
+  } catch (error) {
+    console.error(error);
+  }
+});
+
+slackApp.action("reject_request", async ({ ack, body, client }) => {
+  await ack();
+  const requester = body.message.blocks[0].text.text.match(/<@(\w+)>/)[1];
+
+  try {
+    await client.chat.postMessage({
+      channel: requester,
+      text: `Your approval request has been rejected by <@${body.user.id}>.`,
+    });
+  } catch (error) {
+    console.error(error);
+  }
+});
+
+(async () => {
+  await slackApp.start(process.env.PORT);
+  console.log("Slack bot is running");
+})();
+
+app.listen(3000, () => {
+  console.log("Express server is running on port 3000");
 });
