@@ -14,66 +14,70 @@ const slackApp = new App({
 });
 
 app.post("/slack/commands", async (req, res) => {
-  const { command, text, user_id, trigger_id } = req.body;
+  try {
+    const { command, text, user_id, trigger_id } = req.body;
 
-  if (command === "/approval-test") {
-    try {
-      await slackApp.client.views.open({
-        trigger_id,
-        view: {
-          type: "modal",
-          callback_id: "approval_modal",
-          title: {
-            type: "plain_text",
-            text: "Approval Request",
-          },
-          blocks: [
-            {
-              type: "input",
-              block_id: "approver_block",
-              element: {
-                type: "users_select",
-                action_id: "approver",
-              },
-              label: {
-                type: "plain_text",
-                text: "Select Approver",
-              },
+    if (command === "/approval-test") {
+      try {
+        await slackApp.client.views.open({
+          trigger_id,
+          view: {
+            type: "modal",
+            callback_id: "approval_modal",
+            title: {
+              type: "plain_text",
+              text: "Approval Request",
             },
-            {
-              type: "input",
-              block_id: "approval_text_block",
-              element: {
-                type: "plain_text_input",
-                action_id: "approval_text",
-                multiline: true,
-              },
-              label: {
-                type: "plain_text",
-                text: "Approval Text",
-              },
-            },
-            {
-              type: "actions",
-              elements: [
-                {
-                  type: "button",
-                  text: {
-                    type: "plain_text",
-                    text: "Submit",
-                  },
-                  action_id: "submit_approval",
+            blocks: [
+              {
+                type: "input",
+                block_id: "approver_block",
+                element: {
+                  type: "users_select",
+                  action_id: "approver",
                 },
-              ],
-            },
-          ],
-        },
-      });
-      res.status(200).send("");
-    } catch (error) {
-      console.error(error);
-      res.status(500).send("Something went wrong");
+                label: {
+                  type: "plain_text",
+                  text: "Select Approver",
+                },
+              },
+              {
+                type: "input",
+                block_id: "approval_text_block",
+                element: {
+                  type: "plain_text_input",
+                  action_id: "approval_text",
+                  multiline: true,
+                },
+                label: {
+                  type: "plain_text",
+                  text: "Approval Text",
+                },
+              },
+              {
+                type: "actions",
+                elements: [
+                  {
+                    type: "button",
+                    text: {
+                      type: "plain_text",
+                      text: "Submit",
+                    },
+                    action_id: "submit_approval",
+                  },
+                ],
+              },
+            ],
+          },
+        });
+        res.status(200).send("");
+      } catch (error) {
+        console.error(error);
+        res.status(500).send("Something went wrong");
+      }
     }
+  } catch (e) {
+    console.log(e);
   }
 });
 
